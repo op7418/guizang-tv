@@ -9,6 +9,8 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 /** Opt-in, once-per-full-boot launch. Never handles screen-on, HDMI or Home keys. */
 public final class BootStart {
@@ -19,7 +21,24 @@ public final class BootStart {
     }
     static boolean enabled(Context c) { return prefs(c).getBoolean("enabled", false); }
     private static int bootCount(Context c) {
-        return Settings.Global.getInt(c.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+        int boot = Settings.Global.getInt(c.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+        if (boot >= 0) return boot;
+        // Android 6 has no boot_count setting. /proc/stat btime is stable for this boot
+        // and changes on every reboot. elapsedRealtime/1000 collides when the stock
+        // launcher calls the gate at the same ~27s mark on consecutive boots.
+        long btime = bootTimeSeconds();
+        if (btime > 0) return (int)(btime & 0x7fffffff);
+        // Last resort: a changing token; the app still opens, only the status may not confirm.
+        return (int)(System.nanoTime() & 0x7fffffff);
+    }
+    private static long bootTimeSeconds() {
+        try (BufferedReader reader = new BufferedReader(new FileReader("/proc/stat"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("btime ")) return Long.parseLong(line.substring(6).trim());
+            }
+        } catch (Exception ignored) { }
+        return -1;
     }
     static void enter(Activity a) {
         int boot = bootCount(a);

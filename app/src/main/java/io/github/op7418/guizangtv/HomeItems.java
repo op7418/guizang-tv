@@ -31,12 +31,13 @@ final class HomeItems {
         for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
             for (ResolveInfo r : context.getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category), 0)) {
                 String id = r.activityInfo.packageName;
-                if (!id.equals(context.getPackageName()) && r.activityInfo.enabled && r.activityInfo.exported)
-                    names.putIfAbsent(id, XiaomiControls.label(id, r.loadLabel(context.getPackageManager()).toString()));
+                if (!id.equals(context.getPackageName()) && r.activityInfo.enabled && r.activityInfo.exported) {
+                    if(!names.containsKey(id))names.put(id, XiaomiControls.label(id, r.loadLabel(context.getPackageManager()).toString()));
+                }
             }
         }
     }
-    String name(String id) { return names.getOrDefault(id, context.getSharedPreferences("home-items",0).getString("name:"+id,id)); }
+    String name(String id) { return names.containsKey(id)?names.get(id):context.getSharedPreferences("home-items",0).getString("name:"+id,id); }
     static boolean validId(String id) { return id.equals("hdmi:1") || id.equals("hdmi:2") || id.matches("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+"); }
     boolean save(List<String> next) {
         if (next.isEmpty() || next.size()>9 || new HashSet<>(next).size()!=next.size()) return false;

@@ -13,7 +13,7 @@ final class XiaomiControls {
     private XiaomiControls() { }
 
     static boolean enabled() {
-        return "MiTV-MTSU0".equals(Build.MODEL);
+        return "MiTV-MTSU0".equals(Build.MODEL) || "MiTV4-ANSM0".equals(Build.MODEL);
     }
 
     /** Observed on this firmware: source 23 = HDMI 1, source 24 = HDMI 2. */

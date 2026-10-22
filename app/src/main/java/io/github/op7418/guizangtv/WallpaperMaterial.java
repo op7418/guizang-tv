@@ -6,18 +6,18 @@ import android.os.*;
 import android.util.LruCache;
 import android.view.View;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
 
 /** Registered wallpaper materials: blur once off-thread, then only crop during focus motion. */
 final class WallpaperMaterial {
     private static final ExecutorService WORKER=Executors.newSingleThreadExecutor();
     private static final Handler MAIN=new Handler(Looper.getMainLooper());
     private static final LruCache<String,Bitmap> CACHE=new LruCache<>(12);
-    static void request(Drawable source,int blur,Consumer<Bitmap> ready) {
-        if(!(source instanceof BitmapDrawable)){ready.accept(null);return;}
+    interface Ready { void ready(Bitmap bitmap); }
+    static void request(Drawable source,int blur,Ready ready) {
+        if(!(source instanceof BitmapDrawable)){ready.ready(null);return;}
         Bitmap original=((BitmapDrawable)source).getBitmap();
         String key=original.getGenerationId()+":"+blur;
-        Bitmap cached=CACHE.get(key);if(cached!=null){ready.accept(cached);return;}
+        Bitmap cached=CACHE.get(key);if(cached!=null){ready.ready(cached);return;}
         WORKER.execute(()->{
             Bitmap result=CACHE.get(key);
             if(result==null){
@@ -31,7 +31,7 @@ final class WallpaperMaterial {
                 int[] blurred=GaussianBlur.apply(pixels,w,h,blur/5f);
                 small.setPixels(blurred,0,w,0,0,w,h);result=small;CACHE.put(key,result);
             }
-            Bitmap material=result;MAIN.post(()->ready.accept(material));
+            Bitmap material=result;MAIN.post(()->ready.ready(material));
         });
     }
     static GradientDrawable rounded(int color,float radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(radius);return d;}
