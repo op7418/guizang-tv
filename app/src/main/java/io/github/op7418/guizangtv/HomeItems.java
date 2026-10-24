@@ -17,6 +17,13 @@ final class HomeItems {
         context = c;
         String[] labels = {"PlayStation 5", "Apple TV", "哔哩哔哩", "小米投屏", "相册", "小米原桌面"};
         for (int i=0;i<DEFAULTS.length;i++) names.put(DEFAULTS[i], labels[i]);
+        String[] defaults=DEFAULTS;
+        if(TclControls.enabled()){
+            names.clear();
+            for(int port=1;port<=4;port++)names.put("hdmi:"+port,"HDMI "+port);
+            names.put("com.tcl.cyberui","TCL 原桌面");
+            defaults=new String[]{"hdmi:1","hdmi:2","com.tcl.cyberui"};
+        }
         discover();
         try {
             JSONArray data = new JSONArray(c.getSharedPreferences("home-items",0).getString("order","[]"));
@@ -25,7 +32,7 @@ final class HomeItems {
                 if (validId(id) && !order.contains(id)) order.add(id);
             }
         } catch (Exception ignored) { order.clear(); }
-        if (order.isEmpty()) order.addAll(Arrays.asList(DEFAULTS));
+        if (order.isEmpty()) order.addAll(Arrays.asList(defaults));
     }
     void discover() {
         for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
@@ -36,8 +43,11 @@ final class HomeItems {
             }
         }
     }
-    String name(String id) { return names.getOrDefault(id, context.getSharedPreferences("home-items",0).getString("name:"+id,id)); }
-    static boolean validId(String id) { return id.equals("hdmi:1") || id.equals("hdmi:2") || id.matches("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+"); }
+    String name(String id) {
+        String saved=context.getSharedPreferences("home-items",0).getString("name:"+id,null);
+        return saved!=null&&!saved.isEmpty()?saved:names.getOrDefault(id,id);
+    }
+    static boolean validId(String id) { return id!=null&&(id.matches("hdmi:[1-4]") || id.matches("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+")); }
     boolean save(List<String> next) {
         if (next.isEmpty() || next.size()>9 || new HashSet<>(next).size()!=next.size()) return false;
         for(String id : next) if(!validId(id)) return false;

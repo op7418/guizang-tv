@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
@@ -18,12 +19,19 @@ public final class BootStart {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
     static boolean enabled(Context c) { return prefs(c).getBoolean("enabled", false); }
+    static boolean supported() {
+        return BootStartPolicy.supported(Build.MODEL, Build.MANUFACTURER, Build.BRAND);
+    }
     private static int bootCount(Context c) {
         return Settings.Global.getInt(c.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
-    static void enter(Activity a) {
+    static synchronized void enter(Context a, Intent source, boolean gate) {
+        if (source == null || !BootStartPolicy.acceptsAction(source.getAction(), gate)) {
+            Log.i("GuiZangBoot", "Ignored unsupported startup action");
+            return;
+        }
         int boot = bootCount(a);
-        String reason = BootStartPolicy.skipReason(XiaomiControls.enabled(), enabled(a), boot, prefs(a).getInt("attempted", -1),
+        String reason = BootStartPolicy.skipReason(supported(), enabled(a), boot, prefs(a).getInt("attempted", -1),
                 SystemClock.elapsedRealtime());
         if (reason != null) { Log.i("GuiZangBoot", reason); return; }
         if (!prefs(a).edit().putInt("attempted", boot).putString("status", "系统已调用启动入口，等待界面确认").commit()) return;
@@ -45,6 +53,7 @@ public final class BootStart {
     }
     static void confirm(Activity activity) {
         Intent intent = activity.getIntent();
+        if (intent == null) return;
         int boot = intent.getIntExtra(EXTRA, -1);
         if (boot < 0) return;
         intent.removeExtra(EXTRA);
@@ -58,27 +67,26 @@ public final class BootStart {
                         (d, i) -> { if (i == 0) systemSettings.run(); else show(a); })
                 .setNegativeButton("返回", null).show();
     }
-    static void show(Activity a) {
-        if (!XiaomiControls.enabled()) {
-            new AlertDialog.Builder(a).setTitle("开机自动进入（实验）")
-                    .setMessage("目前仅适配 MiTV-MTSU0。其他机型请先使用普通应用入口。")
-                    .setNegativeButton("返回", null).show();
-            return;
-        }
-        String state = prefs(a).getString("status", "尚未进行完整重启测试");
-        new AlertDialog.Builder(a).setTitle("开机自动进入（实验）")
-                .setMessage("仅在完整开机后尝试一次，不接管 Home 键，同次开机的后续调用直接跳过。\n\n"
-                        + "由已适配的小米系统调用启动入口；不需要悬浮窗权限。\n\n"
-                        + "系统入口：" + (configured(a) ? "已配置" : "尚未配置，需电脑设置") + "\n上次状态：" + state)
-                .setPositiveButton(enabled(a) ? "关闭自动进入" : "开启自动进入", (d, which) -> {
+    static AlertDialog show(Activity a) {
+        AlertDialog.Builder dialog = new AlertDialog.Builder(a).setTitle("开机自动进入（实验）")
+                .setMessage("完整开机后尝试进入归藏电视桌面，每次开机最多一次；待机唤醒不会触发。\n\n当前状态："
+                        + (enabled(a) ? "已开启" : "已关闭")
+                        + "\n设备适配：" + (supported() ? "支持尝试，仍受系统限制" : "尚未适配")
+                        + (XiaomiControls.enabled() ? "\n系统入口：" + (configured(a) ? "已配置" : "尚未配置，需电脑设置") : "")
+                        + "\n最近结果：" + prefs(a).getString("status", "尚未尝试")
+                        + "\n\n系统可能阻止后台打开界面。开启开关不会更改默认桌面或电视系统设置。")
+                .setNegativeButton("返回", null);
+        if (supported() || enabled(a)) {
+            dialog.setPositiveButton(enabled(a) ? "关闭自动进入" : "开启自动进入", (d, which) -> {
                     boolean value = !enabled(a);
                     prefs(a).edit().putBoolean("enabled", value).apply();
-                    Toast.makeText(a, value ? (configured(a) ? "已开启，下次完整重启时尝试进入" : "开关已开启，还需按项目文档配置系统入口") : "已关闭开机自动进入", Toast.LENGTH_LONG).show();
-                })
-                .setNegativeButton("返回", null).show();
+                    Toast.makeText(a, value ? (XiaomiControls.enabled()&&!configured(a) ? "开关已开启，还需按项目文档配置系统入口" : "已开启，下次完整重启时尝试进入") : "已关闭开机自动进入", Toast.LENGTH_LONG).show();
+                });
+        }
+        return dialog.show();
     }
     static void dump(Context c, java.io.PrintWriter out) {
-        out.println("BootStart: enabled=" + enabled(c) + " configured=" + configured(c)
+        out.println("BootStart: enabled=" + enabled(c) + " supported=" + supported() + " configured=" + configured(c)
                 + " boot=" + bootCount(c) + " attempted=" + prefs(c).getInt("attempted", -1)
                 + " status=" + prefs(c).getString("status", "none"));
     }

@@ -5,6 +5,6 @@ import android.os.Bundle;
 public final class BootGateActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        try { BootStart.enter(this); } finally { finish(); }
+        try { BootStart.enter(this, getIntent(), true); } finally { finish(); }
     }
 }

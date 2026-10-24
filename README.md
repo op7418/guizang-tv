@@ -34,6 +34,9 @@
 
 ## 安装与使用
 
+main 增加了针对 TCL Smart TV Pro 的适配：系统设置、原桌面、已注册信源及默认 HOME 场景的返回行为。
+仅有单台 Android 14 设备记录，适用范围、未验项和恢复方式见 [TCL 适配说明](docs/TCL.md)。这不改变下方正式 Release 的版本内容。
+
 从 [Releases](https://github.com/op7418/guizang-tv/releases) 下载 APK，通过电视支持的本地安装方式安装。也可以在开启电视 ADB 调试、电脑连接同一网络后执行：
 
 ```sh
