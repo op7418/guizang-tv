@@ -1,23 +1,12 @@
 package io.github.op7418.guizangtv;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
-import android.view.View;
-import android.view.Window;
-import android.widget.FrameLayout;
-import android.widget.GridLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -43,8 +32,9 @@ final class FrameWallpapers {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<Entry> entries = new ArrayList<>();
-    private boolean rotating, active, loading, destroyed, hasImage;
-    private int current, minutes, generation;
+    private final WallpaperLoadState loads = new WallpaperLoadState();
+    private boolean rotating, active;
+    private int current, minutes;
     Runnable changed=()->{};
     private final Runnable rotate = () -> load(WallpaperCycle.next(current, entries.size()));
 
@@ -110,29 +100,29 @@ final class FrameWallpapers {
         }
     }
 
-    private void load(int index) { load(index, () -> {}); }
-    private void load(int index, Runnable success) {
-        if (destroyed || entries.isEmpty()) return;
+    private void load(int index) { load(index, false, () -> {}); }
+    private void load(int index, boolean userSelection, Runnable success) {
+        if (loads.destroyed() || entries.isEmpty()) return;
         handler.removeCallbacks(rotate);
-        final int request = ++generation;
-        loading = true;
+        final int request = loads.begin(userSelection);
         worker.execute(() -> {
             Bitmap bitmap = null;
             try { bitmap = decode(entries.get(index).file, false); }
             catch (Exception error) { android.util.Log.e("TvHome.Wallpaper", "Decode failed", error); }
             final Bitmap image = bitmap;
             handler.post(() -> {
-                if (destroyed || request != generation) {
+                if (!loads.accepts(request)) {
                     if (image != null) image.recycle();
                     return;
                 }
-                loading = false;
                 if (image == null) {
+                    loads.complete(request, false);
                     Toast.makeText(activity, "壁纸加载失败，保留当前图片", Toast.LENGTH_SHORT).show();
                     schedule();
                     return;
                 }
                 if (!prefs.edit().putString("selected", entries.get(index).id).commit()) {
+                    loads.complete(request, false);
                     image.recycle();
                     Toast.makeText(activity,"未能保存壁纸，保留原设置",Toast.LENGTH_SHORT).show();
                     schedule(); return;
@@ -140,20 +130,21 @@ final class FrameWallpapers {
                 transition.animate().cancel();
                 if (transition.getDrawable() != null) photo.setImageDrawable(transition.getDrawable());
                 transition.setImageDrawable(null);
-                if (!hasImage || !active) {
+                if (!loads.hasImage() || !active) {
                     photo.setImageBitmap(image);
                     changed.run();
                 } else {
                     transition.setImageBitmap(image);
                     transition.setAlpha(0f);
                     transition.animate().alpha(1f).setDuration(700).withEndAction(() -> {
+                        if (loads.destroyed()) return;
                         photo.setImageBitmap(image);
                         changed.run();
                         transition.setImageDrawable(null);
                         transition.setAlpha(0f);
                     }).start();
                 }
-                hasImage = true;
+                loads.complete(request, true);
                 current = index;
                 success.run();
                 android.util.Log.i("TvHome.Wallpaper", "Applied " + entries.get(current).name
@@ -165,18 +156,17 @@ final class FrameWallpapers {
 
     private void schedule() {
         handler.removeCallbacks(rotate);
-        if (active && !destroyed && !loading && rotating && entries.size() > 1)
+        if (active && !loads.destroyed() && !loads.loading() && rotating && entries.size() > 1)
             handler.postDelayed(rotate, minutes * 60_000L);
     }
 
-    void resume() { active = true; schedule(); }
+    void resume() { active = true; if (loads.needsImage()) load(current); else schedule(); }
     void pause() {
         active = false;
         handler.removeCallbacks(rotate);
     }
     void destroy() {
-        destroyed = true;
-        generation++;
+        loads.destroy();
         previewGeneration++;
         pause();
         transition.animate().cancel();
@@ -193,7 +183,13 @@ final class FrameWallpapers {
     String name(int index) { return entries.get(index).name; }
     boolean rotating() { return rotating; }
     int minutes() { return minutes; }
-    void select(int index, Runnable success) { load(index, success); }
+    void select(int index, Runnable success) {
+        if (loads.destroyed()) return;
+        if (index == current && loads.useCurrentImage()) {
+            schedule();success.run();return;
+        }
+        load(index, true, success);
+    }
     boolean rotation(boolean enabled, int value) {
         int next = WallpaperCycle.minutes(value);
         if (!prefs.edit().putBoolean("rotating", enabled).putInt("minutes", next).commit()) return false;
@@ -201,8 +197,12 @@ final class FrameWallpapers {
     }
     private int previewGeneration;
     void cancelPreview() { previewGeneration++; }
-    void cancelSelection() { generation++; loading=false; schedule(); }
+    void cancelSelection() {
+        loads.cancelSelection();
+        if (loads.needsImage()) load(current); else schedule();
+    }
     void preview(int index, ImageView target, Runnable ready) {
+        if (loads.destroyed()) return;
         final int request=++previewGeneration;
         worker.execute(() -> {
             Bitmap value=null;
@@ -210,7 +210,7 @@ final class FrameWallpapers {
             catch(Exception error) { android.util.Log.w("TvHome.Wallpaper","Preview unavailable",error); }
             final Bitmap image=value;
             handler.post(() -> {
-                if(destroyed || request!=previewGeneration){if(image!=null)image.recycle();return;}
+                if(loads.destroyed() || request!=previewGeneration){if(image!=null)image.recycle();return;}
                 if(image!=null){target.setImageBitmap(image);ready.run();}
                 else Toast.makeText(activity,"预览加载失败，可重试或返回",Toast.LENGTH_SHORT).show();
             });
@@ -220,8 +220,7 @@ final class FrameWallpapers {
     void dump(PrintWriter out) {
         out.println("FrameWallpaper: count=" + entries.size() + " index=" + current
                 + " rotating=" + rotating + " minutes=" + minutes + " active=" + active
-                + " loading=" + loading + " name=" + (entries.isEmpty() ? "" : entries.get(current).name));
+                + " loading=" + loads.loading() + " name=" + (entries.isEmpty() ? "" : entries.get(current).name));
     }
 
-    private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
 }

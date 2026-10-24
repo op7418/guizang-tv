@@ -1,5 +1,6 @@
 package io.github.op7418.guizangtv;
 
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -17,6 +18,7 @@ import java.util.*;
 final class HomeSettings {
     private final FrameHomeActivity a;
     private Dialog dialog;
+    private AlertDialog bootDialog;
     private String page="overview";
     private final Map<String,Integer> remembered=new HashMap<>();
     private final List<View> choices=new ArrayList<>();
@@ -31,6 +33,7 @@ final class HomeSettings {
     private View content;
     private int backdropRequest;
     private int cityRequest;
+    private int pageRequest;
     private boolean searching;
     private EditText cityInput;
     private String cityQuery="",cityError="";
@@ -41,11 +44,18 @@ final class HomeSettings {
     void time(String time){if(preview!=null)preview.clock.setText(time);}
     void weatherChanged(){if(preview!=null)preview.weather(a.weather.current());if(showing()&&page.equals("weather")&&status!=null)status.setText(a.weather.city()+" · "+a.weather.status());}
     void show(){
+        showPage("overview");
+    }
+    private void showPage(String targetPage){
         if(showing())return;
-        page="overview";undo.clear();
+        page=targetPage;undo.clear();
         dialog=new Dialog(a){@Override public void onBackPressed(){back();}};
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setOnDismissListener(d->{a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();undo.clear();a.updateRotation();a.surface.controls.get(2).requestFocus();});
+        dialog.setOnDismissListener(d->{
+            invalidatePage();dialog=null;undo.clear();a.updateRotation();
+            int ctrlIndex = 2;
+            if (!a.isFinishing()&&!a.isDestroyed()&&ctrlIndex < a.surface.controls.size()) a.surface.controls.get(ctrlIndex).requestFocus();
+        });
         dialog.show();dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         dialog.getWindow().setLayout(-1,-1);
         dialog.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -54,35 +64,43 @@ final class HomeSettings {
         View shade=new View(a);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0xC2080C0F,0x7D080C0F}));stage.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         dialog.setContentView(stage);render();a.updateRotation();
     }
-    void close(){cityRequest++;searching=false;if(dialog!=null)dialog.dismiss();}
+    private void invalidatePage(){
+        dismissBootDialog();
+        cityRequest++;backdropRequest++;pageRequest++;searching=false;
+        a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();preview=null;cityInput=null;
+    }
+    void close(){invalidatePage();if(dialog!=null)dialog.dismiss();}
     private void back(){
         a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();
         if(page.equals("overview")){close();return;}
         go(page.equals("city")?"weather":page.equals("wallpaper")||page.equals("rotation")?"background":page.startsWith("item:")||page.equals("add")?"home":"overview");
     }
-    private void go(String next){cityRequest++;searching=false;a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();page=next;render();}
+    private void go(String next){dismissBootDialog();cityRequest++;searching=false;a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();page=next;render();}
+    private String backLabel(){
+        if(page.equals("overview"))return "返回首页";
+        if(page.equals("city"))return "时间与天气";
+        if(page.equals("wallpaper")||page.equals("rotation"))return "背景";
+        if(page.startsWith("item:")||page.equals("add"))return "首页内容";
+        return "设置";
+    }
     private String title(){
         switch(page){case "overview":return "设置";case "background":return "背景";case "wallpaper":return "壁纸";case "rotation":return "轮播";
             case "weather":return "时间与天气";case "city":return "选择城市";case "layout":return "布局";case "type":return "字体";case "focus":return "选中样式";case "home":return "首页内容";case "add":return "首页内容 / 添加";case "tv":return "电视与启动";case "experiments":return "实验性功能";
             default:return "首页内容 / "+a.items.name(page.substring(5));}
     }
     private void render(){
-        rendering=true;choices.clear();
+        dismissBootDialog();pageRequest++;a.wallpapers.cancelPreview();rendering=true;choices.clear();
         boolean overview=page.equals("overview");
         LinearLayout panel=new LinearLayout(a);panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(a.dp(70),a.dp(overview?42:24),a.dp(70),a.dp(30));
-        if(!overview){
-            TextView back=label("‹  "+(page.equals("wallpaper")||page.equals("rotation")?"背景":"设置"),14);
-            back.setTextColor(0xBBFFFFFF);back.setFocusable(true);back.setOnClickListener(v->back());
-            back.setPadding(a.dp(8),0,a.dp(10),0);
-            back.setOnFocusChangeListener((v,f)->decorate(v,f));
-            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,a.dp(24));bp.leftMargin=-a.dp(8);panel.addView(back,bp);
-        }
-        TextView title=label(title(),28);title.setPadding(0,a.dp(6),0,0);
-        panel.addView(title,new LinearLayout.LayoutParams(-1,a.dp(overview?64:68)));
+        panel.setPadding(a.dp(70),a.dp(24),a.dp(70),a.dp(30));
+        TextView back=backButton();
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,-2);panel.addView(back,bp);
+        TextView title=label(title(),28);title.setPadding(0,a.dp(6),0,a.dp(8));title.setMinimumHeight(a.dp(52));
+        panel.addView(title,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout body=new LinearLayout(a);body.setOrientation(LinearLayout.HORIZONTAL);
         panel.addView(body,new LinearLayout.LayoutParams(-1,0,1));
-        ScrollView scroll=new ScrollView(a);scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        ScrollView scroll=new ScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollbarFadingEnabled(false);
+        scroll.setVerticalFadingEdgeEnabled(true);scroll.setFadingEdgeLength(a.dp(16));scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         options=new LinearLayout(a);options.setOrientation(LinearLayout.VERTICAL);options.setPadding(0,0,0,a.dp(12));
         scroll.addView(options,new ScrollView.LayoutParams(-1,-2));
         body.addView(scroll,new LinearLayout.LayoutParams(a.dp(overview?528:320),-1));
@@ -92,15 +110,16 @@ final class HomeSettings {
         previewHost.setBackground(WallpaperMaterial.rounded(0x40000000,a.dp(10)));previewHost.setClipToOutline(true);
         right.addView(previewHost,new LinearLayout.LayoutParams(-1,a.dp(260)));
         status=label("首页预览",14);status.setTextColor(0xBFFFFFFF);status.setPadding(0,a.dp(16),0,0);
-        right.addView(status,new LinearLayout.LayoutParams(-1,a.dp(65)));
+        status.setMinimumHeight(a.dp(65));right.addView(status,new LinearLayout.LayoutParams(-1,-2));
         if(overview)right.setVisibility(View.GONE);
-        TextView footer=label(overview?"确定  打开选项":"确定  应用设置        返回  上一级",13);footer.setTextColor(0xA6FFFFFF);
-        panel.addView(footer,new LinearLayout.LayoutParams(-1,a.dp(26)));
+        TextView footer=label("上下  浏览        "+(overview?"确定  打开选项":"确定  应用设置        返回  上一级"),13);footer.setTextColor(0xA6FFFFFF);
+        footer.setMinimumHeight(a.dp(26));footer.setPadding(0,a.dp(6),0,0);
+        panel.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         switch(page){
             case "overview":
                 entry("背景", "壁纸、轮播与纯色",()->go("background"));entry("布局","列表、Dock、图标与文字",()->go("layout"));
                 entry("字体","字形与字号",()->go("type"));entry("选中样式","文字高亮与毛玻璃",()->go("focus"));
-                entry("时间与天气","城市、温度与天气显示",()->go("weather"));entry("首页内容","添加、排序、隐藏",()->go("home"));entry("电视与启动","自动进入与小米系统",()->go("tv"));entry("实验性功能","Codex 对话 · 默认关闭",()->go("experiments"));break;
+                entry("时间与天气","城市、温度与天气显示",()->go("weather"));entry("首页内容","添加、排序、隐藏",()->go("home"));entry("电视与启动","自动进入与电视系统",()->go("tv"));entry("实验性功能","Codex 对话 · 默认关闭",()->go("experiments"));break;
             case "background":
                 row("背景","background",new String[]{"照片","浅色","深色"});
                 if(a.appearance.get("background")==0){entry("壁纸",a.wallpapers.name(a.wallpapers.selected()),()->go("wallpaper"));entry("轮播",a.wallpapers.rotating()?"每 "+a.wallpapers.minutes()+" 分钟":"固定壁纸",()->go("rotation"));}
@@ -135,10 +154,11 @@ final class HomeSettings {
                 note("天气显示在时间右侧，每 30 分钟更新。自动城市根据网络出口识别；使用代理时可能不准确，可手动纠正。");
                 note("数据：Open-Meteo · CC BY 4.0\n城市：IPWhois · 不申请精确定位");break;
             case "city":
-                cityInput=new EditText(a);cityInput.setText(cityQuery);cityInput.setTextColor(0xF2FFFFFF);cityInput.setHintTextColor(0x99FFFFFF);cityInput.setTextSize(18);
+                cityInput=new EditText(a);cityInput.setId(View.generateViewId());cityInput.setText(cityQuery);cityInput.setTextColor(0xF2FFFFFF);cityInput.setHintTextColor(0x99FFFFFF);cityInput.setTextSize(18);
                 cityInput.setHint("城市名称或拼音");cityInput.setSingleLine(true);cityInput.setPadding(a.dp(14),0,a.dp(14),0);cityInput.setBackground(WallpaperMaterial.rounded(0x26FFFFFF,a.dp(10)));
                 cityInput.setOnFocusChangeListener((v,focus)->v.setBackground(WallpaperMaterial.rounded(focus?0x45FFFFFF:0x26FFFFFF,a.dp(10))));
-                options.addView(cityInput,new LinearLayout.LayoutParams(-1,a.dp(44)));
+                cityInput.setIncludeFontPadding(true);if(android.os.Build.VERSION.SDK_INT>=28)cityInput.setFallbackLineSpacing(true);
+                cityInput.setMinimumHeight(a.dp(44));options.addView(cityInput,new LinearLayout.LayoutParams(-1,-2));
                 entry("搜索城市",searching?"正在搜索…":"确认后查看匹配城市",this::searchCities);
                 for(HomeWeather.City city:cityResults)entry(city.name,city.region,()->{if(a.weather.select(city)){a.refreshHome();go("weather");}else failed();});
                 if(!cityError.isEmpty())note(cityError);else note("确认省份和国家后选择。返回不会更改当前城市。");break;
@@ -150,7 +170,7 @@ final class HomeSettings {
                 note("当前支持文字对话；语音输入取决于系统输入法。尚未接入日程、米家或电脑控制。");
                 note("关闭后隐藏入口并停止电视端连接，保留配对。已发送的回答可能继续在电脑完成；完全停用请在电脑停止连接服务。");break;
             case "tv":
-                entry("开机自动进入",BootStart.enabled(a)?"已开启":"已关闭",()->BootStart.show(a));entry("电视系统设置","网络、声音、画面等",a::systemSettings);entry("小米原桌面","打开原来的电视首页",a::stockHome);break;
+                entry("开机自动进入",BootStart.enabled(a)?"已开启":"已关闭",this::openBootSettings);entry("电视系统设置","网络、声音、画面等",a::systemSettings);if(TclControls.enabled()||XiaomiControls.enabled())entry(TclControls.enabled()?"TCL 原桌面":"小米原桌面","打开原来的电视首页",a::stockHome);break;
             default:
                 String id=page.substring(5);int pos=a.items.order.indexOf(id);
                 if(pos>0)entry("上移","与上一项交换位置",()->move(id,-1));if(pos>=0&&pos<a.items.order.size()-1)entry("下移","与下一项交换位置",()->move(id,1));
@@ -159,7 +179,17 @@ final class HomeSettings {
         }
         if(content!=null)stage.removeView(content);content=panel;stage.addView(panel,new FrameLayout.LayoutParams(-1,-1));
         refreshPreview();background(a.wallpaperDrawable());rendering=false;weatherChanged();
+        View first=cityInput!=null&&page.equals("city")?cityInput:choices.isEmpty()?null:choices.get(0);
+        if(first!=null){first.setNextFocusUpId(back.getId());back.setNextFocusDownId(first.getId());}
         if(!choices.isEmpty())choices.get(Math.min(remembered.getOrDefault(page,0),choices.size()-1)).requestFocus();
+    }
+    private void openBootSettings(){
+        dismissBootDialog();bootDialog=BootStart.show(a);
+        bootDialog.setOnDismissListener(d->{bootDialog=null;if(showing()&&page.equals("tv"))render();});
+    }
+    private void dismissBootDialog(){
+        if(bootDialog==null)return;
+        AlertDialog child=bootDialog;bootDialog=null;child.setOnDismissListener(null);child.dismiss();
     }
     private void experiment(boolean enabled){
         if(!a.assistant.enabled(enabled)){failed();return;}
@@ -175,24 +205,28 @@ final class HomeSettings {
         for(int i=0;i<a.wallpapers.count();i++){
             final int index=i;
             TextView v=button(a.wallpapers.name(i),()->{
-                if(index==a.wallpapers.selected()){status.setText("已应用这张壁纸");return;}
-                status.setText("正在应用壁纸…");String origin=page;
-                a.wallpapers.select(index,()->{if(showing()&&page.equals(origin)){render();status.setText("已应用 · "+a.wallpapers.name(index));}});
+                status.setText("正在应用壁纸…");int request=pageRequest;
+                a.wallpapers.select(index,()->{
+                    if(!showing()||!page.equals("wallpaper")||request!=pageRequest)return;
+                    if(a.appearance.get("background")!=0&&!a.appearance.set("background",0)){failed();return;}
+                    a.refreshHome();render();status.setText("已应用 · "+a.wallpapers.name(index));
+                });
             });
             android.graphics.drawable.Drawable thumb=a.wallpapers.thumbnail(i);
             if(thumb!=null){thumb=roundedThumb(thumb);thumb.setBounds(0,0,a.dp(48),a.dp(27));v.setCompoundDrawables(thumb,null,checkmark(i==a.wallpapers.selected()),null);v.setCompoundDrawablePadding(a.dp(14));}
             v.setOnFocusChangeListener((view,focus)->{
                 decorate(view,focus);if(!focus)return;remembered.put(page,choices.indexOf(view));
+                reveal(view);
                 a.wallpapers.cancelSelection();
-                status.setText(index==a.wallpapers.selected()?"已应用 · "+a.wallpapers.name(index):"预览 · 按确定应用 "+a.wallpapers.name(index));
+                status.setText(a.appearance.get("background")!=0?"预览 · 按确定使用照片背景":index==a.wallpapers.selected()?"已应用 · "+a.wallpapers.name(index):"预览 · 按确定应用 "+a.wallpapers.name(index));
                 if(preview!=null){HomeSurface target=preview;a.wallpapers.preview(index,target.previewPhoto,()->{
                     if(preview!=target||!showing())return;
                     target.wallpaper(target.previewPhoto.getDrawable());background(target.previewPhoto.getDrawable());
                 });}
             });
-            options.addView(v,new LinearLayout.LayoutParams(-1,a.dp(46)));
+            addOption(v,46);
         }
-        note("上下浏览预览，按确定设为壁纸。");
+        note("上下浏览预览，按确定使用照片背景。仅浏览后返回不更改设置；轮播偏好保持不变。");
     }
     private void row(String title,String key,String[] labels){
         heading(title);
@@ -203,19 +237,19 @@ final class HomeSettings {
                 if(a.appearance.set(key,value)){a.refreshHome();render();}else failed();
             });
             v.setCompoundDrawables(null,null,checkmark(a.appearance.get(key)==i),null);
-            options.addView(v,new LinearLayout.LayoutParams(-1,a.dp(42)));
+            addOption(v,42);
         }
     }
     private void option(String name,boolean selected,Runnable run){
         TextView v=button(name,run);v.setCompoundDrawables(null,null,checkmark(selected),null);
-        options.addView(v,new LinearLayout.LayoutParams(-1,a.dp(44)));
+        addOption(v,44);
     }
     private Drawable checkmark(boolean selected){
         if(!selected)return null;
         Drawable mark=a.getDrawable(R.drawable.mark_check).mutate();mark.setTint(0xDFFFFFFF);mark.setBounds(0,0,a.dp(16),a.dp(16));return mark;
     }
-    private void heading(String s){TextView v=label(s,14);v.setTextColor(0xADFFFFFF);v.setPadding(a.dp(12),a.dp(12),0,a.dp(7));options.addView(v);}
-    private void note(String s){TextView v=label(s,13);v.setTextColor(0xA6FFFFFF);v.setLineSpacing(a.dp(3),1);v.setPadding(a.dp(12),a.dp(14),a.dp(8),a.dp(12));options.addView(v);}
+    private void heading(String s){TextView v=label(s,14);v.setTextColor(0xADFFFFFF);v.setPadding(a.dp(12),a.dp(12),0,a.dp(7));options.addView(v,new LinearLayout.LayoutParams(-1,-2));}
+    private void note(String s){TextView v=label(s,13);v.setTextColor(0xA6FFFFFF);v.setLineSpacing(a.dp(3),1);v.setPadding(a.dp(12),a.dp(14),a.dp(8),a.dp(12));options.addView(v,new LinearLayout.LayoutParams(-1,-2));}
     private void entry(String name,String subtitle,Runnable run){
         TextView v=button(name+(subtitle.isEmpty()?"":"\n"+subtitle),run);
         if(!subtitle.isEmpty()){
@@ -225,12 +259,28 @@ final class HomeSettings {
         }
         v.setTag(Boolean.TRUE);
         Drawable arrow=a.getDrawable(R.drawable.mark_caret_right).mutate();arrow.setTint(0xAAFFFFFF);arrow.setBounds(0,0,a.dp(14),a.dp(14));v.setCompoundDrawables(null,null,arrow,null);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,a.dp(subtitle.isEmpty()?44:56));lp.bottomMargin=a.dp(4);options.addView(v,lp);decorate(v,false);
+        v.setMinimumHeight(a.dp(subtitle.isEmpty()?44:56));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=a.dp(4);options.addView(v,lp);decorate(v,false);
+    }
+    private void addOption(TextView view,int minHeight){view.setMinimumHeight(a.dp(minHeight));options.addView(view,new LinearLayout.LayoutParams(-1,-2));}
+    private TextView backButton(){
+        TextView back=label(backLabel(),15);back.setId(View.generateViewId());back.setGravity(Gravity.CENTER_VERTICAL);
+        back.setPadding(a.dp(12),a.dp(6),a.dp(14),a.dp(6));back.setMinimumHeight(a.dp(44));
+        Drawable arrow=a.getDrawable(R.drawable.mark_arrow_left).mutate();arrow.setBounds(0,0,a.dp(18),a.dp(18));
+        back.setCompoundDrawables(arrow,null,null,null);back.setCompoundDrawablePadding(a.dp(8));
+        back.setDefaultFocusHighlightEnabled(false);back.setFocusable(true);back.setFocusableInTouchMode(true);back.setClickable(true);back.setOnClickListener(v->back());
+        back.setOnFocusChangeListener((v,focus)->{decorate(v,focus);arrow.setTint(focus?0xFF202321:0xEBFFFFFF);});
+        back.setNextFocusUpId(back.getId());decorate(back,false);arrow.setTint(0xEBFFFFFF);return back;
     }
     private TextView button(String text,Runnable run){
-        TextView v=label(text,19);v.setPadding(a.dp(14),a.dp(5),a.dp(16),a.dp(5));v.setGravity(Gravity.CENTER_VERTICAL);v.setId(View.generateViewId());v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);choices.add(v);
-        v.setOnFocusChangeListener((view,focus)->{decorate(view,focus);if(focus&&!rendering)remembered.put(page,choices.indexOf(view));});
+        TextView v=label(text,19);v.setPadding(a.dp(14),a.dp(5),a.dp(16),a.dp(5));v.setGravity(Gravity.CENTER_VERTICAL);v.setId(View.generateViewId());v.setDefaultFocusHighlightEnabled(false);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);choices.add(v);
+        v.setOnFocusChangeListener((view,focus)->{decorate(view,focus);if(focus){
+            if(!rendering)remembered.put(page,choices.indexOf(view));reveal(view);
+        }});
         v.setOnClickListener(view->run.run());v.setOnKeyListener((view,key,e)->(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)&&e.getAction()==KeyEvent.ACTION_DOWN&&e.getRepeatCount()>0);return v;
+    }
+    private void reveal(View view){
+        view.post(()->{if(view.isFocused())view.requestRectangleOnScreen(new android.graphics.Rect(0,0,view.getWidth(),view.getHeight()),false);});
     }
     private void decorate(View view,boolean focus){
         TextView v=(TextView)view;
@@ -243,10 +293,15 @@ final class HomeSettings {
 
         Drawable arrow=v.getCompoundDrawables()[2];if(arrow!=null)arrow.setTint(focus?0x99202321:0xAAFFFFFF);
     }
-    private TextView label(String s,int size){TextView v=new TextView(a);v.setText(s);v.setTextSize(size);v.setTextColor(0xF2FFFFFF);v.setTypeface(android.os.Build.VERSION.SDK_INT>=28?Typeface.create(Typeface.create("sans-serif",Typeface.NORMAL),300,false):Typeface.create("sans-serif-light",Typeface.NORMAL));v.setIncludeFontPadding(false);return v;}
+    private TextView label(String s,int size){
+        TextView v=new TextView(a);v.setText(s);v.setTextSize(size);v.setTextColor(0xF2FFFFFF);
+        v.setTypeface(android.os.Build.VERSION.SDK_INT>=28?Typeface.create(Typeface.create("sans-serif",Typeface.NORMAL),300,false):Typeface.create("sans-serif-light",Typeface.NORMAL));
+        v.setIncludeFontPadding(true);if(android.os.Build.VERSION.SDK_INT>=28)v.setFallbackLineSpacing(true);return v;
+    }
     private void background(Drawable source){
         int request=++backdropRequest;
-        WallpaperMaterial.request(source,42,image->{if(request==backdropRequest&&showing()&&image!=null)backdrop.setImageBitmap(image);});
+        ImageView target=backdrop;
+        WallpaperMaterial.request(source,42,image->{if(request==backdropRequest&&showing()&&target==backdrop&&image!=null)target.setImageBitmap(image);});
     }
     private Drawable roundedThumb(Drawable source){
         android.graphics.Bitmap image=android.graphics.Bitmap.createBitmap(a.dp(48),a.dp(27),android.graphics.Bitmap.Config.ARGB_8888);
