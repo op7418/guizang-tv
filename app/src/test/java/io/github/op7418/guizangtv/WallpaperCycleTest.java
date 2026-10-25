@@ -4,6 +4,17 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class WallpaperCycleTest {
+    @org.junit.Test public void transitionDurationBoundsAndSteps() {
+        for(int value=700;value<=1500;value+=100) assertEquals(value, WallpaperCycle.fadeMs(value));
+        for(int value : new int[]{-1, 0, 600, 750, 1600, Integer.MAX_VALUE})
+            assertEquals(700, WallpaperCycle.fadeMs(value));
+    }
+    @org.junit.Test public void transitionLabelsShowTenths() {
+        assertEquals("0.7 秒", WallpaperCycle.fadeLabel(700));
+        assertEquals("1.0 秒", WallpaperCycle.fadeLabel(1000));
+        assertEquals("1.5 秒", WallpaperCycle.fadeLabel(1500));
+    }
+
     @Test public void wrapsThirteenImagesWithoutRepeatingLast() {
         assertEquals(0, WallpaperCycle.next(12, 13));
         assertEquals(6, WallpaperCycle.next(5, 13));

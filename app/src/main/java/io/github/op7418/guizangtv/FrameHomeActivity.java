@@ -21,7 +21,7 @@ public final class FrameHomeActivity extends Activity implements HomeSurface.Act
     HomeAssistant assistant;
     HomeSurface surface;
     private FrameLayout root;
-    private ImageView photo, transition;
+    private ImageView photo;
     private AlertDialog library;
     private boolean resumed;
     private int selected;
@@ -36,10 +36,10 @@ public final class FrameHomeActivity extends Activity implements HomeSurface.Act
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         appearance=new HomeAppearance(this);items=new HomeItems(this);
         selected=getSharedPreferences("frame-home",0).getInt("selected",0);
-        root=new FrameLayout(this);photo=new ImageView(this);transition=new ImageView(this);
-        photo.setScaleType(ImageView.ScaleType.CENTER_CROP);transition.setScaleType(ImageView.ScaleType.CENTER_CROP);transition.setAlpha(0);
-        root.addView(photo,new FrameLayout.LayoutParams(-1,-1));root.addView(transition,new FrameLayout.LayoutParams(-1,-1));
-        wallpapers=new FrameWallpapers(this,photo,transition);
+        root=new FrameLayout(this);photo=new ImageView(this);
+        photo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        root.addView(photo,new FrameLayout.LayoutParams(-1,-1));
+        wallpapers=new FrameWallpapers(this,photo);
         weather=new HomeWeather(this,this::weatherChanged);
         settings=new HomeSettings(this);
         assistant=new HomeAssistant(this);
@@ -52,7 +52,6 @@ public final class FrameHomeActivity extends Activity implements HomeSurface.Act
         if(surface!=null)root.removeView(surface);
         root.setBackgroundColor(appearance.light()?0xFFF0EFE9:0xFF11151B);
         photo.setVisibility(appearance.get("background")==0?View.VISIBLE:View.INVISIBLE);
-        transition.setVisibility(photo.getVisibility());
         surface=new HomeSurface(this,appearance,items,wallpaperDrawable(),restore,false,this);
         root.addView(surface,new FrameLayout.LayoutParams(-1,-1));
         surface.apps.get(restore).requestFocus();

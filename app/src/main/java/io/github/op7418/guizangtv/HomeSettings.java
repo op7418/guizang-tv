@@ -58,11 +58,11 @@ final class HomeSettings {
     private void back(){
         a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();
         if(page.equals("overview")){close();return;}
-        go(page.equals("city")?"weather":page.equals("wallpaper")||page.equals("rotation")?"background":page.startsWith("item:")||page.equals("add")?"home":"overview");
+        go(page.equals("city")?"weather":page.equals("wallpaper")||page.equals("rotation")||page.equals("fade")?"background":page.startsWith("item:")||page.equals("add")?"home":"overview");
     }
     private void go(String next){cityRequest++;searching=false;a.wallpapers.cancelPreview();a.wallpapers.cancelSelection();page=next;render();}
     private String title(){
-        switch(page){case "overview":return "设置";case "background":return "背景";case "wallpaper":return "壁纸";case "rotation":return "轮播";
+        switch(page){case "overview":return "设置";case "background":return "背景";case "wallpaper":return "壁纸";case "rotation":return "轮播";case "fade":return "渐变时长";
             case "weather":return "时间与天气";case "city":return "选择城市";case "layout":return "布局";case "type":return "字体";case "focus":return "选中样式";case "home":return "首页内容";case "add":return "首页内容 / 添加";case "tv":return "电视与启动";case "experiments":return "实验性功能";
             default:return "首页内容 / "+a.items.name(page.substring(5));}
     }
@@ -72,7 +72,7 @@ final class HomeSettings {
         LinearLayout panel=new LinearLayout(a);panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(a.dp(70),a.dp(overview?42:24),a.dp(70),a.dp(30));
         if(!overview){
-            TextView back=label("‹  "+(page.equals("wallpaper")||page.equals("rotation")?"背景":"设置"),14);
+            TextView back=label("‹  "+(page.equals("wallpaper")||page.equals("rotation")||page.equals("fade")?"背景":"设置"),14);
             back.setTextColor(0xBBFFFFFF);back.setFocusable(true);back.setOnClickListener(v->back());
             back.setPadding(a.dp(8),0,a.dp(10),0);
             back.setOnFocusChangeListener((v,f)->decorate(v,f));
@@ -103,7 +103,7 @@ final class HomeSettings {
                 entry("时间与天气","城市、温度与天气显示",()->go("weather"));entry("首页内容","添加、排序、隐藏",()->go("home"));entry("电视与启动","自动进入与小米系统",()->go("tv"));entry("实验性功能","Codex 对话 · 默认关闭",()->go("experiments"));break;
             case "background":
                 row("背景","background",new String[]{"照片","浅色","深色"});
-                if(a.appearance.get("background")==0){entry("壁纸",a.wallpapers.name(a.wallpapers.selected()),()->go("wallpaper"));entry("轮播",a.wallpapers.rotating()?"每 "+a.wallpapers.minutes()+" 分钟":"固定壁纸",()->go("rotation"));}
+                if(a.appearance.get("background")==0){entry("壁纸",a.wallpapers.name(a.wallpapers.selected()),()->go("wallpaper"));entry("轮播",a.wallpapers.rotating()?"每 "+a.wallpapers.minutes()+" 分钟":"固定壁纸",()->go("rotation"));if(a.wallpapers.rotating())entry("渐变时长",WallpaperCycle.fadeLabel(a.wallpapers.fadeMs()),()->go("fade"));}
                 else note("切换回照片背景后，可选择壁纸和轮播。原来的照片与轮播偏好会保留。");break;
             case "layout":
                 row("首页布局","layout",new String[]{"纵向列表","横向 Dock"});row("应用显示","apps",new String[]{"文字","图标","图标＋文字"});row("右侧操作","controls",new String[]{"文字","图标","图标＋文字"});
@@ -119,6 +119,11 @@ final class HomeSettings {
                 for(int m:WallpaperCycle.MINUTES){final int value=m;option("每 "+m+" 分钟",a.wallpapers.rotating()&&a.wallpapers.minutes()==m,()->{
                     if(a.wallpapers.rotation(true,value))render();else failed();});}
                 note("只在照片首页显示时计时；设置页、其他应用和纯色背景会暂停轮播。选择壁纸不会改变轮播模式。");break;
+            case "fade":
+                for(int duration=700;duration<=1500;duration+=100){final int value=duration;
+                    option(WallpaperCycle.fadeLabel(value),a.wallpapers.fadeMs()==value,()->{
+                        if(a.wallpapers.fadeDuration(value))render();else failed();});}
+                break;
             case "wallpaper":gallery();break;
             case "home":
                 note("保留 1–9 个入口。选择一项可调整位置或从首页隐藏。");

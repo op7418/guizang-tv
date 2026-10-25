@@ -38,20 +38,33 @@ final class FrameWallpapers {
         }
     }
     private final Activity activity;
-    private final ImageView photo, transition;
+    private final ImageView photo;
     private final SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<Entry> entries = new ArrayList<>();
     private boolean rotating, active, loading, destroyed, hasImage;
     private int current, minutes, generation;
+    private int fadeMs;
+    private Bitmap pendingImage;
+    private final Runnable finishTransition = this::finishFade;
+    private void finishFade() {
+        handler.removeCallbacks(finishTransition);
+        if (pendingImage != null) {
+            Bitmap image = pendingImage;
+            pendingImage = null;
+            photo.setImageBitmap(image);
+            changed.run();
+        }
+    }
     Runnable changed=()->{};
     private final Runnable rotate = () -> load(WallpaperCycle.next(current, entries.size()));
 
-    FrameWallpapers(Activity activity, ImageView photo, ImageView transition) {
-        this.activity = activity; this.photo = photo; this.transition = transition;
+    FrameWallpapers(Activity activity, ImageView photo) {
+        this.activity = activity; this.photo = photo;
         prefs = activity.getSharedPreferences("frame-wallpapers", Activity.MODE_PRIVATE);
         rotating = prefs.getBoolean("rotating", true);
+        fadeMs = WallpaperCycle.fadeMs(prefs.getInt("fade_ms", WallpaperCycle.DEFAULT_FADE_MS));
         minutes = WallpaperCycle.minutes(prefs.getInt("minutes", WallpaperCycle.DEFAULT_MINUTES));
         try (InputStream stream = openCatalog()) {
             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
@@ -110,6 +123,25 @@ final class FrameWallpapers {
         }
     }
 
+    /** Give both TransitionDrawable layers identical bounds and crop before animating. */
+    private Bitmap fitWallpaper(Bitmap source) {
+        android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        int width = Math.max(1, metrics.widthPixels);
+        int height = Math.max(1, metrics.heightPixels);
+        if (source.getWidth() == width && source.getHeight() == height) { source.setDensity(metrics.densityDpi); return source; }
+        float scale = Math.max(width / (float) source.getWidth(), height / (float) source.getHeight());
+        float scaledWidth = source.getWidth() * scale, scaledHeight = source.getHeight() * scale;
+        Bitmap fitted = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        fitted.setDensity(metrics.densityDpi);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(fitted);
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        canvas.drawBitmap(source, null, new android.graphics.RectF(
+                (width - scaledWidth) / 2f, (height - scaledHeight) / 2f,
+                (width + scaledWidth) / 2f, (height + scaledHeight) / 2f), paint);
+        source.recycle();
+        return fitted;
+    }
+
     private void load(int index) { load(index, () -> {}); }
     private void load(int index, Runnable success) {
         if (destroyed || entries.isEmpty()) return;
@@ -118,7 +150,7 @@ final class FrameWallpapers {
         loading = true;
         worker.execute(() -> {
             Bitmap bitmap = null;
-            try { bitmap = decode(entries.get(index).file, false); }
+            try { bitmap = fitWallpaper(decode(entries.get(index).file, false)); }
             catch (Exception error) { android.util.Log.e("TvHome.Wallpaper", "Decode failed", error); }
             final Bitmap image = bitmap;
             handler.post(() -> {
@@ -137,21 +169,23 @@ final class FrameWallpapers {
                     Toast.makeText(activity,"未能保存壁纸，保留原设置",Toast.LENGTH_SHORT).show();
                     schedule(); return;
                 }
-                transition.animate().cancel();
-                if (transition.getDrawable() != null) photo.setImageDrawable(transition.getDrawable());
-                transition.setImageDrawable(null);
+                finishFade();
                 if (!hasImage || !active) {
                     photo.setImageBitmap(image);
                     changed.run();
                 } else {
-                    transition.setImageBitmap(image);
-                    transition.setAlpha(0f);
-                    transition.animate().alpha(1f).setDuration(700).withEndAction(() -> {
-                        photo.setImageBitmap(image);
-                        changed.run();
-                        transition.setImageDrawable(null);
-                        transition.setAlpha(0f);
-                    }).start();
+                    android.graphics.drawable.Drawable old = photo.getDrawable();
+                    android.graphics.drawable.Drawable.ConstantState state = old.getConstantState();
+                    android.graphics.drawable.Drawable previous = state == null ? old : state.newDrawable(activity.getResources()).mutate();
+                    android.graphics.drawable.TransitionDrawable blend = new android.graphics.drawable.TransitionDrawable(
+                            new android.graphics.drawable.Drawable[]{previous,
+                                    new android.graphics.drawable.BitmapDrawable(activity.getResources(), image)});
+                    // Keep the old image opaque below the new one to avoid fading through black.
+                    blend.setCrossFadeEnabled(false);
+                    pendingImage = image;
+                    photo.setImageDrawable(blend);
+                    blend.startTransition(fadeMs);
+                    handler.postDelayed(finishTransition, fadeMs);
                 }
                 hasImage = true;
                 current = index;
@@ -173,13 +207,14 @@ final class FrameWallpapers {
     void pause() {
         active = false;
         handler.removeCallbacks(rotate);
+        finishFade();
     }
     void destroy() {
         destroyed = true;
         generation++;
         previewGeneration++;
         pause();
-        transition.animate().cancel();
+        handler.removeCallbacks(finishTransition);
         worker.shutdownNow();
         handler.removeCallbacksAndMessages(null);
     }
@@ -194,6 +229,13 @@ final class FrameWallpapers {
     boolean rotating() { return rotating; }
     int minutes() { return minutes; }
     void select(int index, Runnable success) { load(index, success); }
+    int fadeMs() { return fadeMs; }
+    boolean fadeDuration(int value) {
+        int next = WallpaperCycle.fadeMs(value);
+        if (!prefs.edit().putInt("fade_ms", next).commit()) return false;
+        fadeMs = next;
+        return true;
+    }
     boolean rotation(boolean enabled, int value) {
         int next = WallpaperCycle.minutes(value);
         if (!prefs.edit().putBoolean("rotating", enabled).putInt("minutes", next).commit()) return false;
